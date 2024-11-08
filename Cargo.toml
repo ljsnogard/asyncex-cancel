@@ -1,0 +1,31 @@
+[package]
+name = "asyncex-cancel"
+version = "0.0.1"
+edition = "2021"
+
+authors = ["lino <lino_snsalias@outlook.com>"]
+description = "Cancellation utils for ASYNChronous EXtensions"
+homepage = "https://github.com/ljsnogard/asyncex-cancel"
+keywords = ["async", "cancel"]
+categories = ["no-std"]
+license = "MIT/Apache-2.0"
+readme = "README.md"
+
+[features]
+orphan-tok-as-cancelled = []
+orphan-tok-as-unsignaled = []
+default = ["orphan-tok-as-cancelled"]
+
+[dependencies]
+asyncex-channel = { git = "https://github.com/ljsnogard/asyncex-channel.git", tag = "0.0.1" }
+
+pin-project = { version = "1.1.*" }
+
+[dev-dependencies]
+core_malloc = { git = "https://github.com/ljsnogard/core_malloc.git", tag = "0.1.0" }
+futures-lite = { version = "2" }
+tokio = { version = "1", features = ["full"] }
+async-channel = { version = "2.3.*" }
+chrono = { version = "0.4.*" }
+log = { version = "0.4.*" }
+env_logger = { version = "0.11.*" }
