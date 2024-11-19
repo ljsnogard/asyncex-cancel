@@ -1,6 +1,6 @@
 [package]
 name = "asyncex-cancel"
-version = "0.0.1"
+version = "0.1.2"
 edition = "2021"
 
 authors = ["lino <lino_snsalias@outlook.com>"]
@@ -17,12 +17,12 @@ orphan-tok-as-unsignaled = []
 default = ["orphan-tok-as-cancelled"]
 
 [dependencies]
-asyncex-channel = { git = "https://github.com/ljsnogard/asyncex-channel.git", tag = "0.0.1" }
+asyncex-channel = { git = "https://github.com/ljsnogard/asyncex-channel.git", branch = "dev/0.1.2" }
 
 pin-project = { version = "1.1.*" }
 
 [dev-dependencies]
-core_malloc = { git = "https://github.com/ljsnogard/core_malloc.git", tag = "0.1.0" }
+core_malloc = { git = "https://github.com/ljsnogard/core_malloc.git", tag = "0.1.1" }
 futures-lite = { version = "2" }
 tokio = { version = "1", features = ["full"] }
 async-channel = { version = "2.3.*" }

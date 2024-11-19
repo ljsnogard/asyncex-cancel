@@ -1,8 +1,10 @@
 ﻿use std::{
     borrow::BorrowMut,
+    boxed::Box,
     future::{self, IntoFuture},
     ops::Deref,
     pin::Pin,
+    ptr::NonNull,
     vec::*,
 };
 use pin_utils::pin_mut;
@@ -97,6 +99,45 @@ async fn cancellation_await_should_work() {
 }
 
 #[tokio::test]
+async fn spawned_cancellation_await_should_work() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
+    const CHILDREN_COUNT: usize = 4;
+    let cts = CancellationTokenSource::new_in(
+        TestAlloc::new(),
+        StrictOrderings::default,
+    );
+
+    assert!(cts.can_be_cancelled());
+    assert!(!cts.is_cancellation_requested());
+
+    let mut tokens: Vec<Box<CancellationToken<_, StrictOrderings>>> = (0..CHILDREN_COUNT)
+        .map(|_| {
+            let tok = cts.child_token();
+            assert!(tok.can_be_cancelled());
+            assert!(!tok.is_cancelled());
+            Box::new(tok)
+        })
+        .collect();
+    let mut handles = Vec::<tokio::task::JoinHandle<()>>::new();
+    for tok in tokens.iter_mut() {
+        log::trace!("[spawned_cancellation_await_should_work] before spawn");
+        let mut tok = unsafe { NonNull::new_unchecked(tok.as_mut()) };
+        let handle = tokio::task::spawn(unsafe {
+            tok.as_mut()
+                .cancellation()
+                .cancel_on_orphaned()
+        });
+        handles.push(handle);
+    };
+    assert!(cts.try_cancel());
+    for handle in handles.into_iter() {
+        assert!(handle.await.is_ok())
+    }
+    drop(tokens);
+}
+
+#[tokio::test]
 async fn cts_drop_should_signal_cancel_token() {
     let cts = Cts::default();
     let tok = cts.child_token();
@@ -170,7 +211,7 @@ async fn ok_or_cancelled_smoke() {
         log::trace!("[ok_or_cancelled_smoke] rx.recv()");
         let r = rx
             .recv()
-            .ok_or(tok.as_mut().cancellation().orphan_as_cancelled())
+            .ok_or(tok.as_mut().cancellation().cancel_on_orphaned())
             .await;
         log::trace!(
             "[ok_or_cancelled_smoke] tok.is_cancelled({}), r.is_err({})",
@@ -206,7 +247,7 @@ async fn ok_or_unsignaled_orphaned_smoke() {
         assert!(spawn_tx.send(()).await.is_ok());
         let r = rx
             .recv()
-            .ok_or(tok.as_mut().cancellation().orphan_as_unsignaled())
+            .ok_or(tok.as_mut().cancellation().pend_on_orphaned())
             .await;
         log::trace!(
             "[ok_or_unsignaled_orphaned_smoke] tok.is_cancelled({}), r.is_err({})",
@@ -239,7 +280,7 @@ async fn ok_or_cancelled_orphaned_smoke() {
         assert!(!tok.is_cancelled());
         let r = rx
             .recv()
-            .ok_or(tok.as_mut().cancellation().orphan_as_cancelled())
+            .ok_or(tok.as_mut().cancellation().cancel_on_orphaned())
             .await;
         log::trace!(
             "[ok_or_cancelled_orphaned_smoke] tok.is_cancelled({}), r.is_err({})",
@@ -256,21 +297,22 @@ async fn ok_or_cancelled_orphaned_smoke() {
     assert!(tx.send(42).await.is_err());
 }
 
-async fn recv_async<B, C>(
-    rx: Receiver<B, (), StrictOrderings>,
-    mut tok: impl BorrowMut<C>,
-) -> Result<(), RxError<()>>
-where
-    B: Deref<Target = Oneshot<(), StrictOrderings>>,
-    C: TrCancellationToken,
-{
-    pin_mut!(rx);
-    let cancel = unsafe { Pin::new_unchecked(tok.borrow_mut()) };
-    rx.receive_async().may_cancel_with(cancel).await
-}
-
 #[tokio::test]
 async fn receive_async_cancel() {
+
+    async fn recv_async<B, C>(
+        rx: Receiver<B, (), StrictOrderings>,
+        mut tok: impl BorrowMut<C>,
+    ) -> Result<(), RxError<()>>
+    where
+        B: Deref<Target = Oneshot<(), StrictOrderings>>,
+        C: TrCancellationToken,
+    {
+        pin_mut!(rx);
+        let cancel = unsafe { Pin::new_unchecked(tok.borrow_mut()) };
+        rx.receive_async().may_cancel_with(cancel).await
+    }
+
     let cts = Shared::new(
         CancellationTokenSource::new_in(
             TestAlloc::new(),
@@ -284,7 +326,7 @@ async fn receive_async_cancel() {
     let Result::Ok((tx, rx)) = Oneshot
         ::try_split(oneshot, Shared::strong_count, Shared::weak_count)
     else {
-        panic!("[oneshot::tests_::receive_async_cancel] try_split failed");
+        panic!("[tests_::receive_async_cancel] try_split failed");
     };
     let recv = tokio::task::spawn(recv_async(rx, cts.child_token()));
     cts.try_cancel();

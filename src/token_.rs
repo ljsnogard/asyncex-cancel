@@ -9,7 +9,7 @@ use pin_project::pin_project;
 use pin_utils::pin_mut;
 
 use abs_sync::{
-    cancellation::TrCancellationToken,
+    cancellation::{TrCancellationToken, TrConfigCancelSignal},
     x_deps::pin_utils,
 };
 use atomex::TrCmpxchOrderings;
@@ -34,9 +34,9 @@ where
         CancellationToken(peeker)
     }
 
-    pub fn cancellation(self: Pin<&mut Self>) -> CancellationAsync<'_, B, O> {
+    pub fn cancellation(&mut self) -> CancellationAsync<'_, B, O> {
         CancellationAsync(unsafe {
-            let pointer = &mut self.get_unchecked_mut().0;
+            let pointer = &mut self.0;
             Pin::new_unchecked(pointer)
         })
     }
@@ -57,6 +57,8 @@ where
     B: Deref<Target = Oneshot<(), O>> + Clone,
     O: TrCmpxchOrderings,
 {
+    type Cancellation<'a> = CancellationAsync<'a, B, O> where Self: 'a;
+
     fn is_cancelled(&self) -> bool {
         self.0.is_data_ready()
     }
@@ -65,8 +67,8 @@ where
         !self.0.is_data_ready()
     }
 
-    fn cancellation(self: Pin<&mut Self>) -> impl IntoFuture<Output = ()> {
-        CancellationToken::cancellation(self)
+    fn cancellation(self: Pin<&mut Self>) -> Self::Cancellation<'_> {
+        unsafe { self.get_unchecked_mut().cancellation() }
     }
 }
 
@@ -102,12 +104,28 @@ where
     B: Deref<Target = Oneshot<(), O>>,
     O: TrCmpxchOrderings,
 {
-    pub fn orphan_as_unsignaled(self) -> OrphanAsUnsignaledFuture<'a, B, O> {
+    pub fn pend_on_orphaned(self) -> OrphanAsUnsignaledFuture<'a, B, O> {
         OrphanAsUnsignaledFuture::new(self.0)
     }
 
-    pub fn orphan_as_cancelled(self) -> OrphanAsCancelledFuture<'a, B, O> {
+    pub fn cancel_on_orphaned(self) -> OrphanAsCancelledFuture<'a, B, O> {
         OrphanAsCancelledFuture::new(self.0)
+    }
+}
+
+impl<B, O> TrConfigCancelSignal for CancellationAsync<'_, B, O>
+where
+    B: Deref<Target = Oneshot<(), O>>,
+    O: TrCmpxchOrderings,
+{
+    #[inline]
+    fn pend_on_orphaned(self) -> impl IntoFuture<Output = ()> {
+        CancellationAsync::pend_on_orphaned(self)
+    }
+
+    #[inline]
+    fn cancel_on_orphaned(self) -> impl IntoFuture<Output = ()> {
+        CancellationAsync::cancel_on_orphaned(self)
     }
 }
 
@@ -121,7 +139,7 @@ where
 
     #[cfg(feature = "orphan-tok-as-cancelled")]
     fn into_future(self) -> Self::IntoFuture {
-        self.orphan_as_cancelled()
+        self.cancel_on_orphaned()
     }
 
     #[cfg(feature = "orphan-tok-as-unsignaled")]
