@@ -8,10 +8,9 @@
 use abs_mm::mem_alloc::TrMalloc;
 use atomex::{StrictOrderings, TrCmpxchOrderings};
 use mm_ptr::{x_deps::abs_mm, Shared};
-
-use asyncex_channel::{
-    oneshot::{Oneshot, Peeker, Sender},
-    x_deps::{atomex, mm_ptr},
+use spmv_oneshot::{
+    x_deps::atomex,
+    Oneshot, Peeker, Sender,
 };
 use crate::CancellationToken;
 

@@ -14,9 +14,9 @@ use abs_sync::{
 };
 use atomex::TrCmpxchOrderings;
 
-use asyncex_channel::{
-    oneshot::{Peeker, Oneshot},
-    x_deps::{abs_sync, atomex}
+use spmv_oneshot::{
+    x_deps::{abs_sync, atomex},
+    Peeker, Oneshot,
 };
 
 #[derive(Debug)]

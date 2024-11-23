@@ -18,10 +18,7 @@ use atomex::StrictOrderings;
 use core_malloc::CoreAlloc as TestAlloc;
 use mm_ptr::Shared;
 
-use asyncex_channel::{
-    oneshot::*,
-    x_deps::{abs_sync, atomex, mm_ptr},
-};
+use spmv_oneshot::{x_deps::{abs_sync, atomex}, *};
 
 use super::*;
 
