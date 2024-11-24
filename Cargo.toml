@@ -17,16 +17,17 @@ orphan-tok-as-unsignaled = []
 default = ["orphan-tok-as-cancelled"]
 
 [dependencies]
-mm_ptr = { git = "https://github.com/ljsnogard/mm_ptr.git", branch = "dev/0.1.2" }
 spmv-oneshot = { git = "https://github.com/ljsnogard/spmv-oneshot.git", branch = "dev/0.1.2" }
 
 pin-project = { version = "1.1.*" }
 
 [dev-dependencies]
 core_malloc = { git = "https://github.com/ljsnogard/core_malloc.git", tag = "0.1.1" }
+mm_ptr = { git = "https://github.com/ljsnogard/mm_ptr.git", branch = "dev/0.1.2" }
+
+async-channel = { version = "2.3.*" }
 futures-lite = { version = "2" }
 tokio = { version = "1", features = ["full"] }
-async-channel = { version = "2.3.*" }
 chrono = { version = "0.4.*" }
 log = { version = "0.4.*" }
 env_logger = { version = "0.11.*" }

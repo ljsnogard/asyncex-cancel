@@ -1,9 +1,8 @@
 ﻿use std::{
-    borrow::BorrowMut,
+    borrow::Borrow,
     boxed::Box,
     future::{self, IntoFuture},
     ops::Deref,
-    pin::Pin,
     ptr::NonNull,
     vec::*,
 };
@@ -35,20 +34,38 @@ type CancelToken = CancellationToken<
 
 #[test]
 fn default_cancellation_token_source_should_be_cancellable() {
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     assert!(cts.can_be_cancelled());
 }
 
 #[test]
 fn default_cancellation_token_source_child_token_should_be_cancellable() {
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let tok = cts.child_token();
     assert!(!tok.is_cancelled())
 }
 
 #[test]
 fn orphaned_cancellation_token_source_should_be_cancellable() {
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     assert!(cts.can_be_cancelled());
     assert!(cts.try_cancel());
 }
@@ -56,7 +73,13 @@ fn orphaned_cancellation_token_source_should_be_cancellable() {
 #[test]
 fn cancellation_token_source_should_signal_all_child_tokens() {
     const CHILDREN_COUNT: usize = 64;
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
 
     assert!(cts.can_be_cancelled());
     assert!(!cts.is_cancellation_requested());
@@ -78,7 +101,13 @@ fn cancellation_token_source_should_signal_all_child_tokens() {
 
 #[tokio::test]
 async fn cancellation_await_should_work() {
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let tok = cts.child_token();
     let tok_cloned = tok.clone();
 
@@ -100,10 +129,13 @@ async fn spawned_cancellation_await_should_work() {
     let _ = env_logger::builder().is_test(true).try_init();
 
     const CHILDREN_COUNT: usize = 4;
-    let cts = CancellationTokenSource::new_in(
-        TestAlloc::new(),
-        StrictOrderings::default,
-    );
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
 
     assert!(cts.can_be_cancelled());
     assert!(!cts.is_cancellation_requested());
@@ -136,7 +168,13 @@ async fn spawned_cancellation_await_should_work() {
 
 #[tokio::test]
 async fn cts_drop_should_signal_cancel_token() {
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let tok = cts.child_token();
     pin_mut!(tok);
 
@@ -147,7 +185,7 @@ async fn cts_drop_should_signal_cancel_token() {
     drop(cts);
     assert!(
         future::pending::<()>()
-            .ok_or(tok.cancellation().into_future())
+            .ok_or(tok.cancellation().cancel_on_orphaned())
             .await
             .is_err()
     );
@@ -155,7 +193,13 @@ async fn cts_drop_should_signal_cancel_token() {
 
 #[tokio::test]
 async fn ok_or_future_should_work_for_pending_future() {
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let tok = cts.child_token();
     pin_mut!(tok);
 
@@ -172,7 +216,13 @@ async fn ok_or_future_should_work_for_pending_future() {
 
 #[tokio::test]
 async fn ok_or_should_work_for_ready_future() {
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let tok = cts.child_token();
     pin_mut!(tok);
 
@@ -193,7 +243,13 @@ async fn ok_or_should_work_for_ready_future() {
 async fn ok_or_cancelled_smoke() {
     let _ = env_logger::builder().is_test(true).try_init();
 
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let tok = cts.child_token();
     let (spawn_tx, spawn_rx) = async_channel::unbounded::<()>();
     assert!(cts.can_be_cancelled());
@@ -229,7 +285,13 @@ async fn ok_or_cancelled_smoke() {
 async fn ok_or_unsignaled_orphaned_smoke() {
     let _ = env_logger::builder().is_test(true).try_init();
 
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let tok = cts.child_token();
 
     assert!(cts.can_be_cancelled());
@@ -264,7 +326,13 @@ async fn ok_or_unsignaled_orphaned_smoke() {
 async fn ok_or_cancelled_orphaned_smoke() {
     let _ = env_logger::builder().is_test(true).try_init();
 
-    let cts = Cts::default();
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let tok = cts.child_token();
 
     assert!(cts.can_be_cancelled());
@@ -294,28 +362,31 @@ async fn ok_or_cancelled_orphaned_smoke() {
     assert!(tx.send(42).await.is_err());
 }
 
+/// To verify if cancellation token will work with `Receiver::receive_async`
 #[tokio::test]
 async fn receive_async_cancel() {
 
     async fn recv_async<B, C>(
         rx: Receiver<B, (), StrictOrderings>,
-        mut tok: impl BorrowMut<C>,
+        tok: impl Borrow<C>,
     ) -> Result<(), RxError<()>>
     where
         B: Deref<Target = Oneshot<(), StrictOrderings>>,
-        C: TrCancellationToken,
+        C: Clone + TrCancellationToken,
     {
         pin_mut!(rx);
-        let cancel = unsafe { Pin::new_unchecked(tok.borrow_mut()) };
+        let cancel = tok.borrow().clone();
+        pin_mut!(cancel);
         rx.receive_async().may_cancel_with(cancel).await
     }
 
-    let cts = Shared::new(
-        CancellationTokenSource::new_in(
-            TestAlloc::new(),
-            StrictOrderings::default),
-        TestAlloc::new(),
-    );
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
     let oneshot = Shared::new(
         Oneshot::<(), StrictOrderings>::new(),
         TestAlloc::new(),
@@ -328,6 +399,51 @@ async fn receive_async_cancel() {
     let recv = tokio::task::spawn(recv_async(rx, cts.child_token()));
     cts.try_cancel();
     let x = recv.await;
+    assert!(matches!(x, Result::Ok(Result::Err(RxError::Cancelled))));
+    drop(tx)
+}
+
+/// To verify if cancellation token will work with `Peeker::peek_async`
+#[tokio::test]
+async fn peek_async_cancel() {
+
+    async fn peek_async<B, C>(
+        rx: Peeker<B, (), StrictOrderings>,
+        tok: impl Borrow<C>,
+    ) -> Result<(), RxError<()>>
+    where
+        B: Deref<Target = Oneshot<(), StrictOrderings>>,
+        C: Clone + TrCancellationToken,
+    {
+        pin_mut!(rx);
+        let cancel = tok.borrow().clone();
+        pin_mut!(cancel);
+        rx.peek_async()
+            .may_cancel_with(cancel)
+            .await
+            .copied()
+    }
+
+    let Result::Ok(cts) = Cts::try_new(
+        Shared::new(Oneshot::new(), TestAlloc::new()),
+        Shared::strong_count,
+        Shared::weak_count,
+    ) else {
+        unreachable!()
+    };
+    let oneshot = Shared::new(
+        Oneshot::<(), StrictOrderings>::new(),
+        TestAlloc::new(),
+    );
+    let Result::Ok((tx, rx)) = Oneshot
+        ::try_split(oneshot, Shared::strong_count, Shared::weak_count)
+    else {
+        panic!("[tests_::receive_async_cancel] try_split failed");
+    };
+    let rx = rx.try_into().unwrap();
+    let peek = tokio::task::spawn(peek_async(rx, cts.child_token()));
+    cts.try_cancel();
+    let x = peek.await;
     assert!(matches!(x, Result::Ok(Result::Err(RxError::Cancelled))));
     drop(tx)
 }
