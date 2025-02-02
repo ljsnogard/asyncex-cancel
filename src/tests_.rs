@@ -17,11 +17,11 @@ use atomex::StrictOrderings;
 use core_malloc::CoreAlloc as TestAlloc;
 use mm_ptr::Shared;
 
-use spmv_oneshot::{x_deps::{abs_sync, atomex}, *};
+use snapshot_channel::{x_deps::{abs_sync, atomex}, *};
 
 use super::*;
 
-type Cts = CancellationTokenSource::<
+type Cts = CancellationSource::<
     Shared<Oneshot<(), StrictOrderings>, TestAlloc>,
     Sender<Shared<Oneshot<(), StrictOrderings>, TestAlloc>, (), StrictOrderings>,
     Peeker<Shared<Oneshot<(), StrictOrderings>, TestAlloc>, (), StrictOrderings>,

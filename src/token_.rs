@@ -1,7 +1,8 @@
 ﻿use core::{
-    future::{self, Future, IntoFuture},
-    ops::Deref,
+    borrow::Borrow,
+    future::{Future, IntoFuture},
     pin::Pin,
+    ptr,
     task::{Context, Poll},
 };
 
@@ -9,42 +10,46 @@ use pin_project::pin_project;
 use pin_utils::pin_mut;
 
 use abs_sync::{
-    cancellation::{TrCancellationToken, TrConfigCancelSignal},
+    cancellation::TrCancellationToken,
     x_deps::pin_utils,
 };
 use atomex::TrCmpxchOrderings;
 
-use spmv_oneshot::{
+use snapshot_channel::{
     x_deps::{abs_sync, atomex},
-    Peeker, Oneshot,
+    Glimpse, Snapshot,
 };
 
-#[derive(Debug)]
-pub struct CancellationToken<B, O>(Peeker<B, (), O>)
+pub struct CancellationToken<B, F, O>(Snapshot<B, F, O>)
 where
-    B: Deref<Target = Oneshot<(), O>> + Clone,
+    B: Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings;
 
-impl<B, O> CancellationToken<B, O>
+impl<B, F, O> CancellationToken<B, F, O>
 where
-    B: Deref<Target = Oneshot<(), O>> + Clone,
+    B: Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings,
 {
-    pub const fn new(peeker: Peeker<B, (), O>) -> Self {
-        CancellationToken(peeker)
+    pub const fn new(snapshot: Snapshot<B, F, O>) -> Self {
+        CancellationToken(snapshot)
     }
 
-    pub fn cancellation(&mut self) -> CancellationAsync<'_, B, O> {
+    pub fn cancellation(
+        self: Pin<&mut Self>,
+    ) -> CancellationAsync<'_, B, F, O> {
         CancellationAsync(unsafe {
-            let pointer = &mut self.0;
+            let pointer = &mut self.get_unchecked_mut().0;
             Pin::new_unchecked(pointer)
         })
     }
 }
 
-impl<B, O> Clone for CancellationToken<B, O>
+impl<B, F, O> Clone for CancellationToken<B, F, O>
 where
-    B: Deref<Target = Oneshot<(), O>> + Clone,
+    B: Clone + Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings,
 {
     fn clone(&self) -> Self {
@@ -52,181 +57,91 @@ where
     }
 }
 
-impl<B, O> TrCancellationToken for CancellationToken<B, O>
+impl<B, F, O> TrCancellationToken for CancellationToken<B, F, O>
 where
-    B: Deref<Target = Oneshot<(), O>> + Clone,
+    B: Clone + Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings,
 {
-    type Cancellation<'a> = CancellationAsync<'a, B, O> where Self: 'a;
+    type Cancellation<'a> = CancellationAsync<'a, B, F, O> where Self: 'a;
 
     fn is_cancelled(&self) -> bool {
-        self.0.is_data_ready()
+        self.0.is_ready()
     }
 
     fn can_be_cancelled(&self) -> bool {
-        !self.0.is_data_ready()
+        !self.0.is_ready()
     }
 
     fn cancellation(self: Pin<&mut Self>) -> Self::Cancellation<'_> {
-        unsafe { self.get_unchecked_mut().cancellation() }
+        CancellationToken::cancellation(self)
     }
 }
 
-impl<B, O> PartialEq for CancellationToken<B, O>
+impl<B, F, O> PartialEq for CancellationToken<B, F, O>
 where
-    B: Deref<Target = Oneshot<(), O>> + Clone,
+    B: Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings,
 {
     fn eq(&self, other: &Self) -> bool {
-        PartialEq::eq(&self.0, &other.0)
+        ptr::eq(self.0.glimpse(), other.0.glimpse())
     }
 }
 
-unsafe impl<B, O> Send for CancellationToken<B, O>
+unsafe impl<B, F, O> Send for CancellationToken<B, F, O>
 where
-    B: Deref<Target = Oneshot<(), O>> + Clone + Send,
+    B: Borrow<Glimpse<F, O>> + Send,
+    F: Future,
     O: TrCmpxchOrderings,
 {}
 
-unsafe impl<B, O> Sync for CancellationToken<B, O>
+unsafe impl<B, F, O> Sync for CancellationToken<B, F, O>
 where
-    B: Deref<Target = Oneshot<(), O>> + Clone + Sync,
+    B: Borrow<Glimpse<F, O>> + Sync,
+    F: Future,
     O: TrCmpxchOrderings,
 {}
 
-pub struct CancellationAsync<'a, B, O>(Pin<&'a mut Peeker<B, (), O>>)
+pub struct CancellationAsync<'a, B, F, O>(Pin<&'a mut Snapshot<B, F, O>>)
 where
-    B: Deref<Target = Oneshot<(), O>>,
+    B: Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings;
 
-impl<'a, B, O> CancellationAsync<'a, B, O>
+impl<'a, B, F, O> IntoFuture for CancellationAsync<'a, B, F, O>
 where
-    B: Deref<Target = Oneshot<(), O>>,
+    B: Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings,
 {
-    pub fn pend_on_orphaned(self) -> OrphanAsUnsignaledFuture<'a, B, O> {
-        OrphanAsUnsignaledFuture::new(self.0)
-    }
-
-    pub fn cancel_on_orphaned(self) -> OrphanAsCancelledFuture<'a, B, O> {
-        OrphanAsCancelledFuture::new(self.0)
-    }
-}
-
-impl<B, O> TrConfigCancelSignal for CancellationAsync<'_, B, O>
-where
-    B: Deref<Target = Oneshot<(), O>>,
-    O: TrCmpxchOrderings,
-{
-    #[inline]
-    fn pend_on_orphaned(self) -> impl IntoFuture<Output = ()> {
-        CancellationAsync::pend_on_orphaned(self)
-    }
-
-    #[inline]
-    fn cancel_on_orphaned(self) -> impl IntoFuture<Output = ()> {
-        CancellationAsync::cancel_on_orphaned(self)
-    }
-}
-
-impl<'a, B, O> IntoFuture for CancellationAsync<'a, B, O>
-where
-    B: Deref<Target = Oneshot<(), O>>,
-    O: TrCmpxchOrderings,
-{
-    type IntoFuture = OrphanAsCancelledFuture<'a, B, O>;
+    type IntoFuture = CancellationFuture<'a, B, F, O>;
     type Output = <Self::IntoFuture as Future>::Output;
 
-    #[cfg(feature = "orphan-tok-as-cancelled")]
     fn into_future(self) -> Self::IntoFuture {
-        self.cancel_on_orphaned()
-    }
-
-    #[cfg(feature = "orphan-tok-as-unsignaled")]
-    fn into_future(self) -> Self::IntoFuture {
-        self.orphan_as_unsignaled()
+        CancellationFuture(self.0)
     }
 }
 
 #[pin_project]
-pub struct OrphanAsUnsignaledFuture<'a, B, O>(Pin<&'a mut Peeker<B, (), O>>)
+pub struct CancellationFuture<'a, B, F, O>(Pin<&'a mut Snapshot<B, F, O>>)
 where
-    B: Deref<Target = Oneshot<(), O>>,
+    B: Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings;
 
-impl<'a, B, O> OrphanAsUnsignaledFuture<'a, B, O>
+impl<B, F, O> Future for CancellationFuture<'_, B, F, O>
 where
-    B: Deref<Target = Oneshot<(), O>>,
-    O: TrCmpxchOrderings,
-{
-    fn new(peeker: Pin<&'a mut Peeker<B, (), O>>) -> Self {
-        OrphanAsUnsignaledFuture(peeker)
-    }
-
-    async fn get_signal_async_(self: Pin<&mut Self>) {
-        let this = self.project();
-        let peeker = this.0.as_mut();
-        if peeker.peek_async().await.is_err() {
-            future::pending::<()>().await;
-            unreachable!()
-        };
-    }
-}
-
-impl<B, O> Future for OrphanAsUnsignaledFuture<'_, B, O>
-where
-    B: Deref<Target = Oneshot<(), O>>,
+    B: Borrow<Glimpse<F, O>>,
+    F: Future,
     O: TrCmpxchOrderings,
 {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let f = self.get_signal_async_();
-        pin_mut!(f);
-        f.poll(cx)
-    }
-}
-
-#[pin_project]
-pub struct OrphanAsCancelledFuture<'a, B, O>(Pin<&'a mut Peeker<B, (), O>>)
-where
-    B: Deref<Target = Oneshot<(), O>>,
-    O: TrCmpxchOrderings;
-
-impl<'a, B, O> OrphanAsCancelledFuture<'a, B, O>
-where
-    B: Deref<Target = Oneshot<(), O>>,
-    O: TrCmpxchOrderings,
-{
-    fn new(peeker: Pin<&'a mut Peeker<B, (), O>>) -> Self {
-        OrphanAsCancelledFuture(peeker)
-    }
-
-    async fn get_signal_async_(self: Pin<&mut Self>) {
         let this = self.project();
-        let peeker = this.0.as_mut();
-        #[cfg(test)]
-        log::trace!("[OrphanAsCancelledFuture::get_signal_async_] peek_async");
-
-        #[allow(unused)]
-        let Result::Err(e) = peeker.peek_async().await else {
-            return;
-        };
-        #[cfg(test)]
-        log::trace!("[OrphanAsCancelledFuture::get_signal_async_] orphaned {e:?}");
-    }
-}
-
-impl<B, O> Future for OrphanAsCancelledFuture<'_, B, O>
-where
-    B: Deref<Target = Oneshot<(), O>>,
-    O: TrCmpxchOrderings,
-{
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let f = self.get_signal_async_();
-        pin_mut!(f);
-        f.poll(cx)
+        let peek = this.0.as_mut().peek_async().into_future();
+        pin_mut!(peek);
+        peek.poll(cx).map(|_| ())
     }
 }

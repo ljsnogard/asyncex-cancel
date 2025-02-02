@@ -1,120 +1,40 @@
-﻿use core::{
-    borrow::BorrowMut,
-    marker::PhantomData,
-    ops::Deref,
-    pin::Pin,
-};
+﻿use core::{borrow::Borrow, future::Future};
 
 use atomex::{StrictOrderings, TrCmpxchOrderings};
-use spmv_oneshot::{
+use snapshot_channel::{
     x_deps::atomex,
-    Oneshot, Peeker, Sender,
+    Glimpse,
 };
+
 use crate::CancellationToken;
 
-#[derive(Debug)]
-pub struct CancellationTokenSource<BCh, BTx, BRx, O = StrictOrderings>
+pub struct CancellationSource<F, O = StrictOrderings>(Glimpse<F, O>)
 where
-    BCh: Deref<Target = Oneshot<(), O>>,
-    BTx: BorrowMut<Sender<BCh, (), O>>,
-    BRx: BorrowMut<Peeker<BCh, (), O>>,
+    F: Future,
+    O: TrCmpxchOrderings;
+
+impl<F, O> CancellationSource<F, O>
+where
+    F: Future,
     O: TrCmpxchOrderings,
 {
-    _use_c_: PhantomData<BCh>,
-    _use_o_: PhantomData<O>,
-    sender_: Option<BTx>,
-    peeker_: BRx,
-}
-
-impl<'a, O> CancellationTokenSource<
-    Pin<&'a Oneshot<(), O>>,
-    Sender<Pin<&'a Oneshot<(), O>>, (), O>,
-    Peeker<Pin<&'a Oneshot<(), O>>, (), O>,
-    O>
-where
-    O: TrCmpxchOrderings,
-{
-    pub fn from_pinned(oneshot: Pin<&'a mut Oneshot<(), O>>) -> Self {
-        let (tx, rx) = Oneshot::split(oneshot);
-        let Result::Ok(peeker) = rx.try_into() else {
-            unreachable!("[CancellationTokenSource::from_oneshot]")
-        };
-        Self {
-            _use_c_: PhantomData,
-            _use_o_: PhantomData,
-            sender_: Option::Some(tx),
-            peeker_: peeker,
-        }
-    }
-}
-
-impl<BCh, O> CancellationTokenSource<BCh, Sender<BCh, (), O>, Peeker<BCh, (), O>, O>
-where
-    BCh: Clone + Send + Sync + Deref<Target = Oneshot<(), O>>,
-    O: TrCmpxchOrderings,
-{
-    pub fn try_new(
-        oneshot: BCh,
-        strong_count: impl FnOnce(&BCh) -> usize,
-        weak_count: impl FnOnce(&BCh) -> usize,
-    ) -> Result<Self, BCh> {
-        let (tx, rx) = Oneshot::try_split(oneshot, strong_count, weak_count)?;
-        let Result::Ok(peeker) = rx.try_into() else {
-            unreachable!()
-        };
-        Result::Ok(Self {
-            _use_c_: PhantomData,
-            _use_o_: PhantomData,
-            sender_: Option::Some(tx),
-            peeker_: peeker,
-        })
-    }
-}
-
-impl<BCh, BTx, BRx, O> CancellationTokenSource<BCh, BTx, BRx, O>
-where
-    BCh: Deref<Target = Oneshot<(), O>>,
-    BTx: BorrowMut<Sender<BCh, (), O>>,
-    BRx: BorrowMut<Peeker<BCh, (), O>>,
-    O: TrCmpxchOrderings,
-{
-    pub const fn new(sender: BTx, peeker: BRx) -> Self {
-        Self {
-            _use_c_: PhantomData,
-            _use_o_: PhantomData,
-            sender_: Option::Some(sender),
-            peeker_: peeker,
-        }
-    }
-
-    pub fn try_cancel(&self) -> bool {
-        let Option::Some(sender) = &self.sender_ else {
-            return false;
-        };
-        sender.borrow().send(()).wait().is_ok()
+    pub const fn new(future: F) -> Self {
+        CancellationSource(Glimpse::new(future))
     }
 
     #[inline]
     pub fn is_cancellation_requested(&self) -> bool {
-        self.peeker_.borrow().is_data_ready()
+        self.0.try_peek().is_some()
     }
 
+    #[inline]
     pub fn can_be_cancelled(&self) -> bool {
-        let Option::Some(sender) = &self.sender_ else {
-            return false;
-        };
-        sender.borrow().can_send()
+        self.0.try_peek().is_none()
     }
-}
 
-impl<BCh, BTx, BRx, O> CancellationTokenSource<BCh, BTx, BRx, O>
-where
-    BCh: Clone + Send + Sync + Deref<Target = Oneshot<(), O>>,
-    BTx: BorrowMut<Sender<BCh, (), O>>,
-    BRx: BorrowMut<Peeker<BCh, (), O>>,
-    O: TrCmpxchOrderings,
-{
-    pub fn child_token(&self) -> CancellationToken<BCh, O> {
+    pub fn child_token<B: Borrow<Self>>(
+
+    ) -> CancellationToken<B, F, O> {
         CancellationToken::new(self.peeker_.borrow().clone())
     }
 }

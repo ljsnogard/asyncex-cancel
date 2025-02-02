@@ -5,7 +5,7 @@ edition = "2021"
 
 authors = ["lino <lino_snsalias@outlook.com>"]
 description = "Cancellation utils for ASYNChronous EXtensions"
-homepage = "https://github.com/ljsnogard/asyncex-cancel"
+repository = "https://github.com/ljsnogard/asyncex-cancel"
 keywords = ["async", "cancel"]
 categories = ["no-std"]
 license = "MIT/Apache-2.0"
@@ -17,8 +17,7 @@ orphan-tok-as-unsignaled = []
 default = ["orphan-tok-as-cancelled"]
 
 [dependencies]
-spmv-oneshot = { git = "https://github.com/ljsnogard/spmv-oneshot.git", branch = "dev/0.1.2" }
-
+snapshot-channel = { git = "https://github.com/ljsnogard/snapshot-channel-rs.git", branch = "dev/0.1.2" }
 pin-project = { version = "1.1.*" }
 
 [dev-dependencies]

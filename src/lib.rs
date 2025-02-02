@@ -11,11 +11,11 @@ mod token_;
 #[cfg(test)]
 mod tests_;
 
-pub use source_::CancellationTokenSource;
+pub use source_::CancellationSource;
 pub use token_::CancellationToken;
 
 pub mod x_deps {
-    pub use spmv_oneshot;
+    pub use snapshot_channel;
 
-    pub use spmv_oneshot::x_deps::{abs_sync, atomex, atomic_sync, pin_utils};
+    pub use snapshot_channel::x_deps::{abs_sync, atomex, atomic_sync, pin_utils};
 }
